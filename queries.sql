@@ -30,3 +30,44 @@ JOIN medicines m ON p.medicine_id = m.id
 JOIN cities c ON p.city_id = c.id
 WHERE p.price > AVG(p.price) OVER (PARTITION BY m.id)
 ORDER BY diff_from_avg DESC;
+
+-- Резкие изменения цен (аномалии > 20%)
+SELECT *
+FROM (
+    SELECT
+        m.name AS medicine_name,
+        c.name AS city_name,
+        p.price_date,
+        p.price,
+        LAG(p.price) OVER (
+            PARTITION BY p.city_id, p.medicine_id
+            ORDER BY p.price_date
+        ) AS prev_price,
+        ROUND(
+            (p.price - LAG(p.price) OVER (
+                PARTITION BY p.city_id, p.medicine_id
+                ORDER BY p.price_date
+            )) * 100.0
+            / NULLIF(LAG(p.price) OVER (
+                PARTITION BY p.city_id, p.medicine_id
+                ORDER BY p.price_date
+            ), 0),
+            2
+        ) AS percent_change
+    FROM medicine_prices p
+    JOIN medicines m ON p.medicine_id = m.id
+    JOIN cities c ON p.city_id = c.id
+) t
+WHERE prev_price IS NOT NULL
+  AND ABS(percent_change) > 20
+ORDER BY percent_change DESC;
+
+-- Рейтинг городов по дороговизне лекарств
+SELECT
+    c.name AS city_name,
+    ROUND(AVG(p.price), 2) AS avg_price,
+    RANK() OVER (ORDER BY AVG(p.price) DESC) AS price_rank
+FROM medicine_prices p
+JOIN cities c ON p.city_id = c.id
+GROUP BY c.name
+ORDER BY price_rank;
